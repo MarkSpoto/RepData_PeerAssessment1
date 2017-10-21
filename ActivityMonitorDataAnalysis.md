@@ -24,10 +24,84 @@ if (!file.exists('./activity.csv')) {
 
 data <- read.csv("./activity.csv", sep = ",", header = TRUE, fill = TRUE)
 ```
-
-#### Transform Data - Add day of week
+#### Quickly analize the data to see what the values look like
 
 ```r
+summary(data)
+```
+
+```
+##      steps                date          interval     
+##  Min.   :  0.00   2012-10-01:  288   Min.   :   0.0  
+##  1st Qu.:  0.00   2012-10-02:  288   1st Qu.: 588.8  
+##  Median :  0.00   2012-10-03:  288   Median :1177.5  
+##  Mean   : 37.38   2012-10-04:  288   Mean   :1177.5  
+##  3rd Qu.: 12.00   2012-10-05:  288   3rd Qu.:1766.2  
+##  Max.   :806.00   2012-10-06:  288   Max.   :2355.0  
+##  NA's   :2304     (Other)   :15840
+```
+
+#### Give the percentage for each column missing
+
+```r
+pMiss <- function(x){sum(is.na(x))/length(x)*100}
+apply(data,2,pMiss)
+```
+
+```
+##    steps     date interval 
+## 13.11475  0.00000  0.00000
+```
+
+#### Use the mice library to look at missing data patterns
+
+```r
+md.pattern(data)
+```
+
+```
+##       date interval steps     
+## 15264    1        1     1    0
+##  2304    1        1     0    1
+##          0        0  2304 2304
+```
+  
+* The results show the following:
++ 15264 are complete
++ 2304 values are missing from **steps** measurement
+  
+Give a visual representation using the VIM library.  The graph below demonstrates that all missing values belong to **steps** variable
+
+
+```r
+aggr_plot <- aggr(data, col=c('navyblue','red'),
+                  numbers=TRUE, sortVars=TRUE, labels=names(data),
+                  cex.axis=.7, gap=3, ylab=c("Histogram of missing data","Pattern"))
+```
+
+![](ActivityMonitorDataAnalysis_files/figure-html/missingvaluesdiagram-1.png)<!-- -->
+
+```
+## 
+##  Variables sorted by number of missings: 
+##  Variable     Count
+##     steps 0.1311475
+##      date 0.0000000
+##  interval 0.0000000
+```
+
+```r
+marginplot(data[c(1,2)])
+```
+
+![](ActivityMonitorDataAnalysis_files/figure-html/missingvaluesdiagram-2.png)<!-- -->
+  
+*Now that we understand missing values for steps are predominantly at the top, we can assume the person did not start until Oct 2, which was a startup day and the other missing values are days not used.  The data will eliminate October 1 since it will skew all the numbers including any imputation*
+  
+#### Clean and Transform Data
+
+```r
+data <- filter(data, as.Date(date) > '2012-10-01')
 data <- data %>% mutate(monthday = format(as.Date(data$date, "%Y-%m-%d"), format = "%m-%d"),
                         dayofweek = weekdays(as.Date(data$date)))
 ```
@@ -36,7 +110,8 @@ data <- data %>% mutate(monthday = format(as.Date(data$date, "%Y-%m-%d"), format
 #### Aggregate data by Date
 
 ```r
-stepsPerDay <- select(data, steps, monthday) %>% 
+stepsPerDay <- data %>%
+  select(steps, monthday) %>% 
   filter(steps >= 0) %>% 
   group_by(monthday = as.factor(monthday)) %>% 
   summarize(count = n(), 
@@ -44,9 +119,9 @@ stepsPerDay <- select(data, steps, monthday) %>%
             median = median(steps),
             totalSteps = sum(steps, na.rm = TRUE))
 ```
-
+  
 #### Plot the Histogram of the total number of steps taken each day
-###### *Note 10/1 was excluded because it contained no values*
+*Note 10/1 was excluded because it contained no values for steps*
 
 ```r
 ggplot(data = stepsPerDay) + 
@@ -58,28 +133,29 @@ ggplot(data = stepsPerDay) +
   scale_fill_brewer(palette = "Dark2")
 ```
 
-![](ActivityMonitorDataAnalysis_files/figure-html/unnamed-chunk-5-1.png)<!-- -->
-###### Calculate the mean and median for the total number of steps taken
+![](ActivityMonitorDataAnalysis_files/figure-html/unnamed-chunk-8-1.png)<!-- -->
+  
+#### Calculate the mean and median for the total number of steps taken
 
 ```r
 stepsPerDayMean = format(mean(stepsPerDay$totalSteps), digits = 8)
 stepsPerDayMedian = format(median(stepsPerDay$totalSteps), digits = 8)
 ```
-####### **Mean:** 10766.189 steps
-####### **Median:** 10766.189 steps
-
+**Mean:** 10766.189 steps  
+**Median:** 10766.189 steps  
+  
 ## What is the average daily activity pattern?
 
-#### Aggregate data by time interval (Elimiate Oct 1 due to no values)
+#### Aggregate data by time interval
 
 ```r
-stepsPerInterval <- filter(data, steps >= 0) %>%
+stepsPerInterval <- data %>%
   group_by(interval) %>%
   summarise(avgStepsPerInterval = mean(steps, na.rm = TRUE)) %>%
   mutate(hourlyInterval = interval / 100) %>%
   mutate(hour = floor(hourlyInterval), minute = (hourlyInterval - floor(hourlyInterval)) * 100)
 ```
-
+  
 #### Time series plot of the average number of steps per 5-Min interval
 
 ```r
@@ -93,142 +169,45 @@ ggplot(data = stepsPerInterval, aes(x = hourlyInterval, y = avgStepsPerInterval)
   scale_fill_brewer(palette = "Dark2")
 ```
 
-![](ActivityMonitorDataAnalysis_files/figure-html/unnamed-chunk-8-1.png)<!-- -->
+![](ActivityMonitorDataAnalysis_files/figure-html/unnamed-chunk-11-1.png)<!-- -->
+  
+#### Calculate the 5-minute interval that, on average, contains the maxium number of steps
+
+```r
+maxInterval <- which.max(stepsPerInterval$avgStepsPerInterval)
+maxTimeInterval <- stepsPerInterval[maxInterval,]
+maxTimeIntervalValue <- paste(maxTimeInterval$hour, maxTimeInterval$minute, sep=":")
+maxIntervalSteps <- format(maxTimeInterval$avgStepsPerInterval, digits=5)
+maxTimeInterval %>% summarize(interval=maxInterval, avgsteps=maxIntervalSteps, time=maxTimeIntervalValue)
+```
+
+```
+## # A tibble: 1 x 3
+##   interval avgsteps  time
+##      <int>    <chr> <chr>
+## 1      104   206.17  8:35
+```
+  
 
 ## Imputing missing values
-#### Quickly analize the data to see what the values look like
-
-```r
-summary(data)
-```
-
-```
-##      steps                date          interval        monthday        
-##  Min.   :  0.00   2012-10-01:  288   Min.   :   0.0   Length:17568      
-##  1st Qu.:  0.00   2012-10-02:  288   1st Qu.: 588.8   Class :character  
-##  Median :  0.00   2012-10-03:  288   Median :1177.5   Mode  :character  
-##  Mean   : 37.38   2012-10-04:  288   Mean   :1177.5                     
-##  3rd Qu.: 12.00   2012-10-05:  288   3rd Qu.:1766.2                     
-##  Max.   :806.00   2012-10-06:  288   Max.   :2355.0                     
-##  NA's   :2304     (Other)   :15840                                      
-##   dayofweek        
-##  Length:17568      
-##  Class :character  
-##  Mode  :character  
-##                    
-##                    
-##                    
-## 
-```
-
-#### Give the percentage for each column missing
-
-```r
-pMiss <- function(x){sum(is.na(x))/length(x)*100}
-apply(data,2,pMiss)
-```
-
-```
-##     steps      date  interval  monthday dayofweek 
-##  13.11475   0.00000   0.00000   0.00000   0.00000
-```
-
-#### Using mice for looking at missing data pattern
-
-```r
-md.pattern(data)
-```
-
-```
-##       date interval steps monthday dayofweek      
-## 15264    1        1     1        0         0     2
-##  2304    1        1     0        0         0     3
-##          0        0  2304    17568     17568 37440
-```
-##### * The results show the following:
-+ 15264 are complete
-+ 2304 values are missing from **steps** measurement
-
-##### Give a visual representation using VIM
-##### This demonstrates that all missing values belong to **steps** and at the beginning of the data set
-
-
-```r
-aggr_plot <- aggr(data, col=c('navyblue','red'),
-                  numbers=TRUE, sortVars=TRUE, labels=names(data),
-                  cex.axis=.7, gap=3, ylab=c("Histogram of missing data","Pattern"))
-```
-
-![](ActivityMonitorDataAnalysis_files/figure-html/unnamed-chunk-12-1.png)<!-- -->
-
-```
-## 
-##  Variables sorted by number of missings: 
-##   Variable     Count
-##      steps 0.1311475
-##       date 0.0000000
-##   interval 0.0000000
-##   monthday 0.0000000
-##  dayofweek 0.0000000
-```
-
-```r
-marginplot(data[c(1,2)])
-```
-
-![](ActivityMonitorDataAnalysis_files/figure-html/unnamed-chunk-12-2.png)<!-- -->
-
-##### Now that we understand missing values are at the top and scattered for steps
-##### We can assume the person did not start until Oct 2.  Oct 2nd was a startup day and the
-##### other missing values are days not used.
-
-##### Impute the missing values
+* Impute the missing data using mice library 
++ m = number of imputed datasets  
++ meth = 'pmm' refers to the imputation method (predictive mean matching)  
++ maxit = number of interations  
++ seed = the seed to use to autogenerate the random number  
+  
 
 ```r
 workerImputedData <- mice(data,m=5, maxit=5, meth='pmm',seed=500)
-```
-
-```r
 head(workerImputedData$imp$steps, 30)
 ```
-
-```
-##      1   2   3   4   5
-## 1    0   0   0   0   0
-## 2    0   0   0   0   0
-## 3    0  55   0   0   0
-## 4    0   0   0   0  17
-## 5  138  40   0   0   0
-## 6   71   0  74   0   0
-## 7    0   0   1   0  21
-## 8    0   0   1   0  48
-## 9    0 731   0  18   0
-## 10   0   0   0   0   0
-## 11   0   0   0  40  24
-## 12   0   0   0   0  24
-## 13 276   0   0   0   0
-## 14  63   0   0   0   0
-## 15   0   0  19   0 110
-## 16   0   0   0   0   0
-## 17   0  69   0   0   0
-## 18   0   0   0   0  31
-## 19   0   0   0   0   0
-## 20   0   0  77   0 284
-## 21   2   0   0   0   0
-## 22   0   0   0   0   0
-## 23   0 188   0   0   0
-## 24   0  41   0   0   0
-## 25   0 571   0   0   0
-## 26 116  19   0 104   0
-## 27   0  22  56   0   0
-## 28   0  50   0   0   0
-## 29  47   0 137   0   0
-## 30   0   0   0   0   7
-```
+  
+Select the first data set to use for imputing the values
 
 ```r
 imputedData <- complete(workerImputedData, 1)
 ```
+  
 #### Aggregate the imputed data by time interval
 
 ```r
@@ -240,6 +219,7 @@ stepsPerDayImputed <- select(imputedData, steps, monthday) %>%
             median = median(steps),
             totalSteps = sum(steps, na.rm = TRUE))
 ```
+  
 #### Time series plot of the average number of steps per 5-Min interval (imputed data)
 
 ```r
@@ -263,8 +243,8 @@ ggplot(data = stepsPerDayImputed) +
 stepsPerDayMeanImputed = format(mean(stepsPerDayImputed$totalSteps), digits = 8)
 stepsPerDayMedianImputed = format(median(stepsPerDayImputed$totalSteps), digits = 8)
 ```
-####### **Imputed Mean:** 10666.115 steps
-####### **Imputed Median:** 10571 steps
+**Imputed Mean:** 11286.55 steps  
+**Imputed Median:** 11405 steps  
 
 ## Are there differences in activity patterns between weekdays and weekends?
 
@@ -324,3 +304,17 @@ ggplot(data = avgByDaytypeImputed, aes(hourlyInterval, avgStepsPerInterval)) +
 ```
 
 ![](ActivityMonitorDataAnalysis_files/figure-html/unnamed-chunk-19-2.png)<!-- -->
+
+## Summary
+**Mean:** 10766.189 steps  
+**Median:** 10765 steps  
+**Imputed Mean:** 11286.55 steps  
+**Imputed Median:** 11405 steps  
+
+The time interval with the most steps taken was at **8:35** am with an average step count of **206.17**  
+
+Using the imputed results skewed the numbers because the person most likely did not walk or walked very little between the hours of 11:00 pm to 5:30 am.  Therefore these values will more than likely be either NA or 0 while sleeping.
+
+The activity started earlier on the weekdays but there was more activity during the hours 7:00 pm to 10:00 pm on the weekends.
+
+
